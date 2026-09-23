@@ -1,0 +1,179 @@
+clear;
+close all;
+clc;
+
+numbits = 10000;
+T = 1;
+sps = 8;
+Fs = sps/T;
+M = 4;
+k = log2(M);
+Nfft = 2048;
+
+beta_values = [0 0.5 1];
+Ta = 8*T;
+
+span = Ta/T;
+
+% Zадание 1
+
+bits = randi([0 1], numbits, 1);
+
+ost = mod(length(bits), k);
+
+symbols = bi2de(reshape(bits, k, []).', 'left-msb'); 
+modSymbs = pskmod(symbols, M, pi/4, 'gray'); 
+
+% график сигналного соZвеZдия
+figure;
+plot(real(modSymbs), imag(modSymbs), 'o', 'MarkerSize', 8,'MarkerFaceColor', 'b');
+grid on;
+axis equal;
+xlim([-1.5 1.5]);
+ylim([-1.5 1.5]);
+title('qpsk созвездие на выходе маппера');
+xlabel('Re');
+ylabel('Im');
+
+% rrc  
+
+signals = cell(length(beta_values),1);
+rrc_filters = cell(length(beta_values),1);
+
+for i = 1:length(beta_values)
+
+    beta = beta_values(i);
+
+    rrc = rcosdesign(beta, span, sps, 'sqrt');
+    rrc_filters{i} = rrc;
+    sig = upfirdn(modSymbs, rrc, sps, 1);
+
+    signals{i} = sig;
+
+end
+
+% график rrc
+
+figure;
+
+for i = 1:length(beta_values)
+
+    subplot(length(beta_values),1,i);
+
+    sig = signals{i};
+
+
+    plot((0:300-1)/Fs, real(sig(1:300)));
+    grid on;
+
+    xlabel('t');
+    ylabel('Re\{s(t)\}');
+
+    title(['RRC, \beta = ', num2str(beta_values(i))]);
+
+end
+
+
+% энергетический zпектр (zадание 2)
+
+figure;
+
+for i = 1:length(beta_values)
+
+    sig = signals{i};
+
+    S = fftshift(fft(sig, Nfft));
+    pslgod = (abs(S).^2) / (Fs * Nfft); 
+
+    f = (-Nfft/2 : Nfft/2 - 1) * (Fs / Nfft);
+
+    subplot(length(beta_values),1,i);
+    plot(f, 10*log10(pslgod / max(pslgod) + eps));
+    grid on;
+    xlim([-2 2]);
+    ylim([-60 5]);
+    xlabel('f, Гц');
+    ylabel('Норм. PSD, dB');
+    title(['Периодограмма (норм.), \beta = ', num2str(beta_values(i))]);
+
+end
+
+
+% велч
+
+window = hamming(1024);
+noverlap = 512;
+
+figure;
+for i = 1:length(beta_values)
+    s = signals{i};
+
+    [pxx, fw] = pwelch(s, window, noverlap, Nfft, Fs, 'centered');
+
+    Gw = 10*log10(pxx + eps); 
+    
+    subplot(length(beta_values),1,i);
+    plot(fw, Gw, 'LineWidth', 1.2);
+    grid on;
+    xlim([-2 2]);
+    xlabel('Частота, Гц');
+    ylabel('PSD, дБ');
+    title(['Энергетический спектр Велч, \beta = ', num2str(beta_values(i))]);
+end
+
+
+%велч добавка
+
+figure;
+hold on;
+colors = ['b', 'r', 'g'];
+
+for i = 1:length(beta_values)
+    s = signals{i};
+
+    [pxx, fw] = pwelch(s, window, noverlap, Nfft, Fs, 'centered');
+    Gw = 10*log10(pxx + eps); 
+
+    plot(fw, Gw, 'Color', colors(i), 'LineWidth', 1.5, ...
+         'DisplayName', ['\beta = ', num2str(beta_values(i))]);
+end
+
+grid on;
+xlim([-2 2]);
+xlabel('Частота, Гц');
+ylabel('PSD, дБ');
+title('Сравнение энергетических спектров Уэлча для разных \beta');
+legend('show', 'Location', 'best');
+hold off;
+
+
+% сравнение
+
+f_compare = (-Nfft/2 : Nfft/2 - 1) * (Fs / Nfft);
+
+figure;
+for i = 1:length(beta_values)
+    rrc = rrc_filters{i};
+    sig = signals{i};
+
+    S = fftshift(fft(sig, Nfft));
+    PSD = abs(S).^2;
+
+    R = fftshift(fft(rrc, Nfft));
+    RPSD = abs(R).^2;
+
+    subplot(length(beta_values), 1, i);
+
+
+    plot(f_compare, 10*log10(PSD / max(PSD) + eps), 'b'); 
+    hold on;
+    plot(f_compare, 10*log10(RPSD / max(RPSD) + eps), 'r', 'LineWidth', 1.5);
+    hold off;
+    grid on;
+    xlim([-2 2]);
+    ylim([-50 5]); 
+    xlabel('f, Гц');
+    ylabel('Норм. PSD, dB');
+    title(['Сравнение спектров, \beta = ', num2str(beta_values(i))]);
+    legend('QPSK + RRC (Сигнал)', 'RRC импульс (Фильтр)');
+end
