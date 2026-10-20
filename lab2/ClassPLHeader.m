@@ -1,27 +1,25 @@
 classdef ClassPLHeader < handle
     properties (SetAccess = private)
-        SOF_SEQ         
-        PLS_SCRAMBLING   
-        G                
-        MODCOD          
-        TYPE          
+        SOF_SEQ
+        PLS_SCRAMBLING
+        G
+        MODCOD
+        TYPE
     end
 
     methods
         function obj = ClassPLHeader()
-            obj.MODCOD = 4;   
-            obj.TYPE   = 1;   
+            obj.MODCOD = 4;
+            obj.TYPE   = 1;
             decVal = hex2dec('18D2E82');
             obj.SOF_SEQ = double(dec2bin(decVal, 26)) - '0';
 
-            
             obj.PLS_SCRAMBLING = [ ...
                 0 1 1 1 0 0 0 1 1 0 0 1 1 1 0 1, ...
                 1 0 0 0 0 0 1 1 1 1 0 0 1 0 0 1, ...
                 0 1 0 1 0 0 1 1 0 1 0 0 0 0 1 0, ...
                 0 0 1 0 1 1 0 1 1 1 1 1 1 0 1 0];
 
-            
             g1 = repmat([0 1], 1, 16);
             g2 = repmat([0 0 1 1], 1, 8);
             g3 = repmat([0 0 0 0 1 1 1 1], 1, 4);
@@ -36,7 +34,8 @@ classdef ClassPLHeader < handle
                          obj.dec2binArr(obj.TYPE,   2)];
             plsCode = obj.EncodePLS(inputBits);
             plsCode = xor(plsCode, obj.PLS_SCRAMBLING);
-            plHeaderBits = [obj.SOF_SEQ, plsCode];  
+            plHeaderBits = [obj.SOF_SEQ, plsCode];
+
             y = plHeaderBits;
             a = 1/sqrt(2);
             Symbols = zeros(1, 90);
@@ -60,7 +59,7 @@ classdef ClassPLHeader < handle
         function outBits = EncodePLS(obj, inBits)
             b1_6 = inBits(1:6);
             b7   = inBits(7);
-            y = mod(b1_6 * obj.G, 2);   %
+            y = mod(b1_6 * obj.G, 2);
             outBits = zeros(1, 64);
             for i = 1:32
                 if b7 == 0
