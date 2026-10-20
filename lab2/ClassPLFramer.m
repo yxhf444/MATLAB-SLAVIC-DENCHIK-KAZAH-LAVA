@@ -1,96 +1,55 @@
 classdef ClassPLFramer < handle
-    
-    properties
-        SOF_SEQ
-        PLS_SCRAMBLING
+    properties (SetAccess = private)
+        SlotLen
+        PilotLen
+        PilotPeriod
+        PilotSymbol
     end
-    
+
     methods
         function obj = ClassPLFramer()
-            obj.SOF_SEQ = obj.hexToBin(18, 'D2E82', 26);
-            obj.PLS_SCRAMBLING = [0 1 1 1 0 0 0 1 1 0 0 1 1 1 0 1 1 0 0 0 0 0 1 1 1 1 0 0 1 0 0 1 0 1 0 1 0 0 1 1 0 1 0 0 0 0 1 0 0 0 1 0 1 1 0 1 1 1 1 1 1 0 1 0];
+            obj.SlotLen     = 90;
+            obj.PilotLen    = 36;
+            obj.PilotPeriod = 16;
+            obj.PilotSymbol = (1 + 1j) / sqrt(2);
         end
 
-        function plHeaderSym = createPLHeader(obj, modcod)
-            type_val = 1; 
+        function [outSymbols, pilotFlags, numSlots] = insertPilots(obj, xFecFrameSymbols, hasPilots)
+            L = length(xFecFrameSymbols);
+            numSlots = floor(L / obj.SlotLen);
+            tail = L - numSlots * obj.SlotLen;
 
-            inputBits = [obj.dec2binArr(modcod, 5), obj.dec2binArr(type_val, 2)];
-            
-            plsCode = obj.encodePLS(inputBits);
-            
-            plsScrambled = xor(plsCode, obj.PLS_SCRAMBLING);
-
-            plHeaderBits = [obj.SOF_SEQ, plsScrambled];
-   
-            plHeaderSym = (1/sqrt(2)) * (1 - 2 * plHeaderBits) .* exp(1j * (pi/4) * (0:89));
-        end
-        
-        function [outSymbols, pilotFlags] = insertPilots(obj, xFecFrameSymbols)
-            pilotBlock = (1/sqrt(2)) + 1j * (1/sqrt(2)) * ones(1, 36); 
-            pilotBlock = pilotBlock / abs(pilotBlock(1)); 
-            
-            symbolsPerSlot = 90;
-            slotsPerPilot = 16;
-            symbolsPerBlock = symbolsPerSlot * slotsPerPilot; 
-            
-            numBlocks = floor(length(xFecFrameSymbols) / symbolsPerBlock);
             outSymbols = [];
             pilotFlags = [];
-            
-            for b = 1:numBlocks
-                startIdx = (b-1) * symbolsPerBlock + 1;
-                endIdx = b * symbolsPerBlock;
-                
-                outSymbols = [outSymbols, xFecFrameSymbols(startIdx:endIdx), pilotBlock];
-                pilotFlags = [pilotFlags, zeros(1, symbolsPerBlock), ones(1, 36)];
+
+            if ~hasPilots
+                outSymbols = xFecFrameSymbols;
+                pilotFlags = zeros(1, L);
+                return
             end
-            
-            remIdx = numBlocks * symbolsPerBlock + 1;
-            if remIdx <= length(xFecFrameSymbols)
-                outSymbols = [outSymbols, xFecFrameSymbols(remIdx:end)];
-                pilotFlags = [pilotFlags, zeros(1, length(xFecFrameSymbols) - remIdx + 1)];
-            end
-        end
-    end
-    
-    methods (Access = private)
-        
-        function bits = dec2binArr(~, val, numBits)
-            bits = zeros(1, numBits);
-            for i = 1:numBits
-                bits(i) = bitget(val, numBits - i + 1);
-            end
-        end
-        
-                function outBits = encodePLS(obj, inBits)
-            b1_6 = inBits(1:6);
-            b7 = inBits(7);
-            
-            G = [0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1;
-                 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1 1;
-                 0 0 0 0 1 1 1 1 0 0 0 0 1 1 1 1 0 0 0 0 1 1 1 1 0 0 0 0 1 1 1 1;
-                 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1;
-                 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1;
-                 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1]; 
-            
-            y = mod(b1_6 * G, 2);
-            outBits = zeros(1, 64);
-            
-            for i = 1:32
-                if b7 == 0
-                    outBits(2*i - 1) = y(i);
-                    outBits(2*i) = y(i);
-                else
-                    outBits(2*i - 1) = y(i);
-                    outBits(2*i) = ~y(i);
+
+            for s = 1:numSlots
+                idx = (s-1)*obj.SlotLen + 1 : s*obj.SlotLen;
+                outSymbols = [outSymbols, xFecFrameSymbols(idx)];      
+                pilotFlags = [pilotFlags, zeros(1, obj.SlotLen)];     
+
+                if mod(s, obj.PilotPeriod) == 0 && s < numSlots
+                    outSymbols = [outSymbols, obj.PilotSymbol * ones(1, obj.PilotLen)]; 
+                    pilotFlags = [pilotFlags, ones(1, obj.PilotLen)];                    
                 end
             end
+
+            if tail > 0
+                idx = numSlots*obj.SlotLen + 1 : L;
+                outSymbols = [outSymbols, xFecFrameSymbols(idx)];      
+                pilotFlags = [pilotFlags, zeros(1, tail)];             
+            end
         end
-        
-        function bin = hexToBin(~, hex1, hex2, len)
-            decVal = hex2dec([dec2hex(hex1), hex2]);
-            binStr = dec2bin(decVal, len);
-            bin = binStr - '0';
+
+        function plFrame = assemblePLFrame(obj, plHeaderSym, xFecPilots)
+            scr = ClassScrambler();
+            scrambledTail = scr.scramblePL(xFecPilots, 0, 0);
+            plFrame = [plHeaderSym, scrambledTail];
         end
     end
 end
