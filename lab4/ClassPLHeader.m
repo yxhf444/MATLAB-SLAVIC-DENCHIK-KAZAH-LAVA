@@ -47,7 +47,9 @@ classdef ClassPLHeader < handle
             end
         end
 
+        % --- ОБНОВЛЕННАЯ ФУНКЦИЯ ДЕКОДИРОВАНИЯ ---
         function [modcod, type] = decode(obj, rxSym)
+            % 1. Демодуляция pi/2-BPSK в мягкие LLR (по стр. 9 методички)
             L = zeros(1, 90);
             for k = 1:90
                 if mod(k, 2) == 1
@@ -56,10 +58,16 @@ classdef ClassPLHeader < handle
                     L(k) = -real(rxSym(k) * exp( 1j*pi/4));
                 end
             end
-            bits = double(L < 0);
-            plsRx = bits(27:90);
-            plsDescrambled = xor(plsRx, obj.PLS_SCRAMBLING);
-            [modcod, type] = obj.decodePLS(plsDescrambled);
+            
+            % 2. Берем только PLS (пропускаем SOF)
+            plsRxLLR = L(27:90);
+            
+            % 3. Дескремблирование LLR (по стр. 10 методички)
+            % p_k = 1 -> меняем знак, модуль оставляем
+            plsDescrambledLLR = (1 - 2*obj.PLS_SCRAMBLING) .* plsRxLLR;
+            
+            % 4. Декодируем мягкие решения
+            [modcod, type] = obj.decodePLS(plsDescrambledLLR);
         end
     end
 
@@ -87,23 +95,35 @@ classdef ClassPLHeader < handle
             end
         end
 
-        function [modcod, type] = decodePLS(obj, plsBits)
-            soft = 1 - 2*plsBits;
-            S = sum(soft(1:2:end) .* soft(2:2:end));
+
+        function [modcod, type] = decodePLS(obj, plsLLR)
+
+            S = sum(plsLLR(1:2:end) .* plsLLR(2:2:end));
+            
             if S >= 0
-                b7 = 0; Lp = soft(1:2:end) + soft(2:2:end);
+                b7 = 0; 
+                Lp = plsLLR(1:2:end) + plsLLR(2:2:end);
             else
-                b7 = 1; Lp = soft(1:2:end) - soft(2:2:end);
+                b7 = 1; 
+                Lp = plsLLR(1:2:end) - plsLLR(2:2:end);
             end
-            bestMetric = -inf; bestIdx = 0;
+        
+            bestMetric = -inf; 
+            bestIdx = 0;
+            
             for idx = 1:64
                 b1_6 = double(dec2bin(idx-1, 6)) - '0';
-                c = mod(b1_6 * obj.G, 2);
+                c = mod(b1_6 * obj.G, 2); 
+                
+
                 metric = sum((1 - 2*c) .* Lp);
+                
                 if metric > bestMetric
-                    bestMetric = metric; bestIdx = idx;
+                    bestMetric = metric; 
+                    bestIdx = idx;
                 end
             end
+            
             b1_6 = double(dec2bin(bestIdx-1, 6)) - '0';
             modcod = bin2dec(char(b1_6(1:5) + '0'));
             type   = bin2dec(char([b1_6(6), b7] + '0'));
