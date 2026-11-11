@@ -195,6 +195,76 @@ else
 end
 
 
+%2
+
+EsN0dB = 10;
+Es = mean(abs(plFrame).^2);
+N0 = Es / (10^(EsN0dB/10));
+
+fprintf('Es/N0 = %.2f dB\n', EsN0dB);
+fprintf('N0 = %.6f\n', N0);
+
+rng(1);
+
+txSymbols = plFrame(:);
+
+noise = sqrt(N0/2) * ...
+    (randn(size(txSymbols)) + 1j*randn(size(txSymbols)));
+
+rxFrame = txSymbols + noise;
+
+rx = ClassReceiver();
+
+[myBits, mySuccess, myInfo] = rx.process( ...
+    rxFrame.', MODCOD, HAS_PILOTS, N_ldpc, K_bch);
+
+[matlabBitsCell, numFramesLost, matlabCRCCell] = ...
+    dvbs2BitRecover(rxFrame, N0);
+
+matlabBits = matlabBitsCell{1};
+matlabCRC = matlabCRCCell{1};
+
+dataMatch = isequal( ...
+    double(myBits(:)), double(matlabBits(:)));
+
+sourceMatchMy = isequal( ...
+    double(myBits(:)), double(mpegBits(:)));
+
+sourceMatchMATLAB = isequal( ...
+    double(matlabBits(:)), double(mpegBits(:)));
+
+myCRC = myInfo.crcStatus(:);
+matlabCRC = matlabCRC(:);
+
+crcMatch = isequal(myCRC, matlabCRC);
+
+fprintf('\n--- Собственный приемник ---\n');
+
+fprintf('Количество пакетов: %d\n', myInfo.numPackets);
+fprintf('Успешность CRC: %d\n', mySuccess);
+fprintf('Правильность исходных данных: %d\n', sourceMatchMy);
+fprintf('Пакетов с успешным CRC: %d из %d\n', ...
+    sum(myCRC), length(myCRC));
+
+fprintf('\n--- dvbs2BitRecover ---\n');
+
+fprintf('Потерянных кадров: %d\n', numFramesLost);
+fprintf('Правильность исходных данных: %d\n', sourceMatchMATLAB);
+fprintf('Пакетов с успешным CRC: %d из %d\n', ...
+    sum(matlabCRC), length(matlabCRC));
+
+fprintf('\n--- Сравнение приемников ---\n');
+
+fprintf('Совпадение восстановленных данных: %d\n', dataMatch);
+fprintf('Совпадение CRC: %d\n', crcMatch);
+
+if dataMatch && crcMatch
+    fprintf('\nРезультат: приемники работают одинаково.\n');
+else
+    fprintf('\nРезультат: обнаружены различия между приемниками.\n');
+end
+
+
 function c = gf2_conv(a, b)
     a = double(a); b = double(b);
     c = zeros(1, length(a)+length(b)-1);
