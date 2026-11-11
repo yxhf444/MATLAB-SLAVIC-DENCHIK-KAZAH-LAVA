@@ -9,10 +9,10 @@ classdef ClassReceiver < handle
                 function [recoveredBits, isSuccess, info] = process(obj, plFrameIn, MODCOD, hasPilots, N_ldpc, K_bch)
             recoveredBits = []; isSuccess = false; info = struct();
             
-            %% 1. Идеальная синхронизация
+
             rxSym = plFrameIn; 
             
-            %% 1.5. Поиск правильного сдвига и фазы по PLHEADER
+
             hdr = ClassPLHeader();
             ref_plh = hdr.Step(); 
             
@@ -30,32 +30,25 @@ classdef ClassReceiver < handle
             end
             
             rxSym = rxSym(best_shift : end);
-            
-            %% 2. Декодирование PLHEADER
+
             [modcodRx, typeRx] = hdr.decode(rxSym(1:90));
-            
-            %% 3. PL-дескремблирование
+
             scr = ClassScrambler();
-            % Берем символы после PLHEADER и дескремблируем
             xFec = scr.descramblePL(rxSym(91:end));
-            
-            %% 4. Удаление пилотов
+
             plf = ClassPLFramer();
             xFec = plf.extractPilots(xFec, hasPilots);
             
             if length(xFec) > N_ldpc/2
                 xFec = xFec(1 : N_ldpc/2);
             end
-            
-            %% 5. Деммаппинг
+
             dem = ClassDemapper();
             llr = dem.StepRx(xFec, 'QPSK', 1e-6); % <--- Без best_invert!
-            
-            %% 6. Деперемежение
+
             il = ClassBitInterleaver();
             llr = il.StepRx(llr);
             
-            %% 7. LDPC-декодирование
             H = dvbs2ldpc(1/2);
             if exist('ldpcDecoderConfig', 'file') || exist('ldpcDecoderConfig', 'builtin')
                 cfg = ldpcDecoderConfig(H);
@@ -68,22 +61,19 @@ classdef ClassReceiver < handle
             end
             info.ldpcIters = iter;
             
-            %% 8. BCH-декодирование
             enc = ClassEncoder();
             [bbFrameScr, bchOk] = enc.decodeBCH(fecBits, K_bch);
             info.bchOk = bchOk;
             if ~bchOk
                 warning('BCH: синдром ненулевой. Возможно, ошибки в LDPC. Продолжаем...');
-                % Не делаем return! Пусть попробует распарсить, что есть.
             end
+
+            bbFrame = scr.scrambleBB(bbFrameScr);
             
-            %% 9. BB-дескремблирование
-            bbFrame = scr.scrambleBB(bbFrameScr); % XOR обратим
-            
-            %% 10. Разбор BBFRAME
+
             h = ClassHeader();
-            [recoveredBits, isSuccess, info.numPackets] = h.parseBBFrame(bbFrame);
-            info.numPackets = 0;
+            [recoveredBits, isSuccess, info.numPackets, info.crcStatus] = ...
+    h.parseBBFrame(bbFrame);
         end
     end
 end
