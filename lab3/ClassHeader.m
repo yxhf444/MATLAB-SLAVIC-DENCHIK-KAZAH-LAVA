@@ -23,26 +23,41 @@ classdef ClassHeader < handle
             
             bbFrame = [bbHeader, dataField, padding];
         end
-        function [bits, ok, nPackets] = parseBBFrame(obj, bbFrame)
-            DFL   = obj.bin2decArr(bbFrame(33:48));
-            SYNC  = obj.bin2decArr(bbFrame(49:56));
-            % Сдвигаем начало на 1 бит, если есть сдвиг
-            dataField = bbFrame(73 : 72 + DFL);
-    
-            pktLen = 1496 + 8;
-            nPackets = floor(DFL / pktLen);
-            bits = zeros(1, nPackets * 1504);
-            ok = true;
-    
-            for p = 1:nPackets
-                s = (p-1)*pktLen + 1;
-                pktData = dataField(s : s+1495);
-                pktCRC  = dataField(s+1496 : s+1503);
+        function [bits, ok, nPackets, crcStatus] = parseBBFrame(obj, bbFrame)
+
+                DFL  = obj.bin2decArr(bbFrame(33:48));
+                SYNC = obj.bin2decArr(bbFrame(49:56));
+            
+                dataField = bbFrame(73 : 72 + DFL);
+            
+                pktLen = 1504;
+                nPackets = floor(DFL / pktLen);
+            
+                bits = zeros(1, nPackets * 1504);
+                crcStatus = false(1, nPackets);
+            
+                crcUtil = ClassCRC();
+            
+                for p = 1:nPackets
+            
+                    s = (p-1)*pktLen + 1;
+            
+                    pktData = dataField(s : s+1495);
+                    pktCRC  = dataField(s+1496 : s+1503);
+            
+                    calculatedCRC = crcUtil.dvbs2_crc8(pktData);
+            
+                    crcStatus(p) = isequal( ...
+                        double(pktCRC), double(calculatedCRC));
+
+                    bits((p-1)*1504+1 : p*1504) = ...
+                        [obj.dec2binArr(SYNC, 8), pktData];
         
-                ok = true;
-                bits((p-1)*1504+1 : p*1504) = [obj.dec2binArr(SYNC, 8), pktData];
             end
-        end
+        
+            ok = all(crcStatus);
+
+end
     end
     
     methods (Access = private)
